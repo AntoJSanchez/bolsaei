@@ -87,12 +87,12 @@
             };
             const MESES = Object.keys(LLAMAMIENTOS_MENSUALES);
             
-            // --- PLUGIN PERSONALIZADO PARA DIBUJAR LA LÍNEA ---
+            // --- PLUGIN PERSONALIZADO PARA DIBUJAR LA LÍNEA Y ETIQUETA ---
             const verticalLinePlugin = {
                 id: 'verticalLinePlugin',
                 afterDatasetsDraw: (chart) => {
                     const intersection = chart.options.plugins.verticalLinePlugin.intersection;
-                    if (!intersection) {
+                    if (!intersection || !intersection.label) {
                         return;
                     }
 
@@ -105,13 +105,20 @@
                     const yBottom = yAxis.bottom;
 
                     ctx.save();
+                    
                     ctx.beginPath();
                     ctx.moveTo(xCoord, yTop);
                     ctx.lineTo(xCoord, yBottom);
                     ctx.lineWidth = 2;
-                    ctx.strokeStyle = '#dc2626'; // Rojo
-                    ctx.setLineDash([6, 6]); // Línea de puntos
+                    ctx.strokeStyle = '#dc2626';
+                    ctx.setLineDash([6, 6]); 
                     ctx.stroke();
+
+                    ctx.fillStyle = '#dc2626';
+                    ctx.font = 'bold 12px Inter';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(intersection.label, xCoord, yTop - 10);
+
                     ctx.restore();
                 }
             };
@@ -123,7 +130,7 @@
                 const cumulativeCtx = document.getElementById('cumulativeChart').getContext('2d');
                 cumulativeChart = new Chart(cumulativeCtx, { 
                     type: 'line', 
-                    data: { labels: [], datasets: [] }, // Se rellena dinámicamente
+                    data: { labels: [], datasets: [] },
                     options: getChartOptions('Posiciones avanzadas'),
                     plugins: [verticalLinePlugin] 
                 });
@@ -138,11 +145,42 @@
 
             function getChartOptions(yAxisTitle) {
                 return {
-                    responsive: true, maintainAspectRatio: false,
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
                     plugins: { 
                         legend: { display: true, position: 'bottom' },
                         verticalLinePlugin: {
                             intersection: null
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleFont: { weight: 'bold' },
+                            bodyFont: { family: 'Inter' },
+                            padding: 10,
+                            callbacks: {
+                                label: function(context) {
+                                    const datasetLabel = context.dataset.label || '';
+                                    const value = context.parsed.y;
+                                    
+                                    if (context.datasetIndex === 0) {
+                                        const data = context.dataset.data;
+                                        const previousValue = context.dataIndex > 0 ? data[context.dataIndex - 1] : 0;
+                                        const monthlyCalls = value - previousValue;
+                                        const label1 = ` Acumulado: ${value}`;
+                                        const label2 = context.dataIndex === 0 ? ` Asignadas: ${monthlyCalls}` : ` Nuevas: ${monthlyCalls}`;
+                                        return [label1, label2];
+                                    }
+                                    
+                                    if (context.datasetIndex === 1) {
+                                        return ` ${datasetLabel}: ${value}`;
+                                    }
+                                    return `${datasetLabel}: ${value}`;
+                                }
+                            }
                         }
                     },
                     scales: {
@@ -165,8 +203,13 @@
                     
                     if (llamamientosAcumulados + llamamientosMes >= posicion) {
                         const semana = Math.ceil((posicion - llamamientosAcumulados) / (llamamientosMes / 4));
-                        const fraccionDelMes = (posicion - llamamientosAcumulados) / llamamientosMes;
-                        const xIndex = i + fraccionDelMes;
+                        const fraccionDelMesPorSemana = (semana - 0.5) / 4; 
+                        
+                        // *** CORRECCIÓN FINAL DE PRECISIÓN VISUAL ***
+                        // El evento del mes 'i' (ej. Sept, i=0) ocurre en el tramo visual
+                        // que está DESPUÉS de la etiqueta de ese mes.
+                        // La etiqueta de 'Sept' está en el índice 1 de la gráfica, no en el 0.
+                        const xIndex = (i + 1) + fraccionDelMesPorSemana;
 
                         return { tipo: 'especifico', semana: `Semana ${Math.max(1, semana)}`, mes: mes, mesIndex: i, xIndex: xIndex };
                     }
@@ -198,7 +241,6 @@
 
                 if (!cumulativeChart) createCharts();
                 
-                // --- Preparación de datos para la gráfica de línea ---
                 const labelsParaGrafica = ['Vac. Informatizadas', ...MESES];
                 
                 let acumulado = vacantes;
@@ -212,7 +254,8 @@
                 if (resultado.tipo === 'especifico' && resultado.xIndex !== null) {
                     cumulativeChart.options.plugins.verticalLinePlugin.intersection = {
                         xIndex: resultado.xIndex,
-                        yValue: posicion
+                        yValue: posicion,
+                        label: resultado.semana
                     };
                 } else {
                     cumulativeChart.options.plugins.verticalLinePlugin.intersection = null;
@@ -227,7 +270,8 @@
                         backgroundColor: 'rgba(249, 115, 22, 0.2)',
                         fill: true,
                         tension: 0.2,
-                        pointRadius: 0
+                        pointRadius: 2,
+                        pointHoverRadius: 6
                     },
                     {
                         label: 'Tu Posición en Bolsa',
@@ -241,7 +285,6 @@
                 ];
                 cumulativeChart.update();
 
-                // --- Actualización de la gráfica de barras (sin cambios) ---
                 const coloresBarras = MESES.map((_, index) => index === resultado.mesIndex ? '#d97706' : '#fdba74');
                 monthlyCallsChart.data.datasets = [{
                     label: 'Llamamientos Mensuales Estimados',
