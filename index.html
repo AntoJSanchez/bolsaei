@@ -37,7 +37,6 @@
             <p class="text-md text-orange-600">Bolsa de Educación Infantil - Andalucía 2025/26</p>
         </header>
 
-        <!-- User Input Block -->
         <div class="bg-white rounded-2xl shadow-lg p-6 mb-8 border border-gray-200">
             <h2 class="text-xl font-bold text-orange-800 mb-4 border-b pb-3">Introduce tus datos para la simulación</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -57,11 +56,9 @@
             </div>
         </div>
 
-        <!-- Results Block -->
         <div id="resultsBlock" class="hidden">
              <div id="resultText" class="text-center mb-8 p-6 rounded-2xl shadow-lg text-white result-card">
-                 <!-- The result will be injected here -->
-             </div>
+                 </div>
              <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                  <div class="bg-white rounded-2xl shadow-lg p-6 border border-gray-200">
                      <h3 class="text-lg font-bold text-orange-800 mb-2 text-center">Avance Acumulado vs. Tu Posición</h3>
@@ -83,36 +80,71 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // --- BASE DATA ---
-            // Monthly call forecast based on the provided table (using the average of the range)
             const LLAMAMIENTOS_MENSUALES = {
-                'Sept': 950,  // (900+1000)/2
-                'Oct': 200,   // (180+220)/2
-                'Nov': 145,   // (130+160)/2
-                'Dic': 10,    // (5+15)/2
-                'Ene': 155,   // (140+170)/2
-                'Feb': 60,    // (50+70)/2
-                'Mar': 70,    // (60+80)/2
-                'Abr': 35,    // (30+40)/2
-                'May': 25,    // (20+30)/2
-                'Jun': 8      // (5+10)/2 rounded
+                'Sept': 950, 'Oct': 200, 'Nov': 145, 'Dic': 10,
+                'Ene': 155, 'Feb': 60, 'Mar': 70, 'Abr': 35,
+                'May': 25, 'Jun': 8
             };
             const MESES = Object.keys(LLAMAMIENTOS_MENSUALES);
             
+            // --- PLUGIN PERSONALIZADO PARA DIBUJAR LA LÍNEA ---
+            const verticalLinePlugin = {
+                id: 'verticalLinePlugin',
+                afterDatasetsDraw: (chart) => {
+                    const intersection = chart.options.plugins.verticalLinePlugin.intersection;
+                    if (!intersection) {
+                        return;
+                    }
+
+                    const ctx = chart.ctx;
+                    const xAxis = chart.scales.x;
+                    const yAxis = chart.scales.y;
+
+                    const xCoord = xAxis.getPixelForValue(intersection.xIndex);
+                    const yTop = yAxis.getPixelForValue(intersection.yValue);
+                    const yBottom = yAxis.bottom;
+
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(xCoord, yTop);
+                    ctx.lineTo(xCoord, yBottom);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#dc2626'; // Rojo
+                    ctx.setLineDash([6, 6]); // Línea de puntos
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            };
+
             // --- CHART LOGIC ---
             let cumulativeChart, monthlyCallsChart;
 
             function createCharts() {
                 const cumulativeCtx = document.getElementById('cumulativeChart').getContext('2d');
-                cumulativeChart = new Chart(cumulativeCtx, { type: 'line', data: { labels: MESES, datasets: [] }, options: getChartOptions('Posiciones avanzadas') });
+                cumulativeChart = new Chart(cumulativeCtx, { 
+                    type: 'line', 
+                    data: { labels: [], datasets: [] }, // Se rellena dinámicamente
+                    options: getChartOptions('Posiciones avanzadas'),
+                    plugins: [verticalLinePlugin] 
+                });
 
                 const monthlyCtx = document.getElementById('monthlyCallsChart').getContext('2d');
-                monthlyCallsChart = new Chart(monthlyCtx, { type: 'bar', data: { labels: MESES, datasets: [] }, options: getChartOptions('Nº de llamamientos') });
+                monthlyCallsChart = new Chart(monthlyCtx, { 
+                    type: 'bar', 
+                    data: { labels: MESES, datasets: [] }, 
+                    options: getChartOptions('Nº de llamamientos') 
+                });
             }
 
             function getChartOptions(yAxisTitle) {
                 return {
                     responsive: true, maintainAspectRatio: false,
-                    plugins: { legend: { display: true, position: 'bottom' } },
+                    plugins: { 
+                        legend: { display: true, position: 'bottom' },
+                        verticalLinePlugin: {
+                            intersection: null
+                        }
+                    },
                     scales: {
                         y: { beginAtZero: true, title: { display: true, text: yAxisTitle, color: '#c2410c' } },
                         x: { ticks: { color: '#333' } }
@@ -121,66 +153,84 @@
             }
 
             // --- CALCULATION LOGIC ---
-            function calculateForecast(posicionRealACompetir) {
-                if (posicionRealACompetir <= 0) {
-                    return { tipo: 'verano', mesIndex: -1 };
+            function calculateForecast(posicion, vacantes) {
+                if (posicion <= vacantes) {
+                    return { tipo: 'verano', mesIndex: -1, xIndex: null };
                 }
 
-                let llamamientosAcumulados = 0;
+                let llamamientosAcumulados = vacantes;
                 for (let i = 0; i < MESES.length; i++) {
                     const mes = MESES[i];
                     const llamamientosMes = LLAMAMIENTOS_MENSUALES[mes];
                     
-                    if (llamamientosAcumulados + llamamientosMes >= posicionRealACompetir) {
-                         const semana = Math.ceil((posicionRealACompetir - llamamientosAcumulados) / (llamamientosMes / 4));
-                         return { tipo: 'especifico', semana: `Semana ${Math.max(1, semana)}`, mes: mes, mesIndex: i };
+                    if (llamamientosAcumulados + llamamientosMes >= posicion) {
+                        const semana = Math.ceil((posicion - llamamientosAcumulados) / (llamamientosMes / 4));
+                        const fraccionDelMes = (posicion - llamamientosAcumulados) / llamamientosMes;
+                        const xIndex = i + fraccionDelMes;
+
+                        return { tipo: 'especifico', semana: `Semana ${Math.max(1, semana)}`, mes: mes, mesIndex: i, xIndex: xIndex };
                     }
                     llamamientosAcumulados += llamamientosMes;
                 }
 
-                return { tipo: 'siguiente_curso', mesIndex: MESES.length };
+                return { tipo: 'siguiente_curso', mesIndex: MESES.length, xIndex: null };
             }
 
             // --- UI UPDATE LOGIC ---
-            function updateUI(resultado, posicionReal) {
+            function updateUI(resultado, posicion, vacantes) {
                 document.getElementById('resultsBlock').classList.remove('hidden');
                 
                 const resultTextEl = document.getElementById('resultText');
                 switch(resultado.tipo) {
                     case 'verano':
-                        resultTextEl.innerHTML = '<p class="text-3xl md:text-4xl font-bold">¡Adjudicación estimada en Verano!</p><p class="text-sm mt-2 opacity-90">Con tu posición, es muy probable que obtengas una vacante en la adjudicación de agosto.</p>';
+                        resultTextEl.innerHTML = `<p class="text-3xl md:text-4xl font-bold">¡Adjudicación en Verano!</p><p class="text-sm mt-2 opacity-90">Con tu posición (${posicion}), es muy probable que obtengas una de las ${vacantes} vacantes informatizadas de agosto.</p>`;
                         break;
                     case 'siguiente_curso':
-                        resultTextEl.innerHTML = `<p class="text-2xl md:text-3xl font-bold">No se estima llamada este curso.</p><p class="text-sm mt-2 opacity-90">Tu posición a competir (${posicionReal}) supera los llamamientos totales previstos para el curso.</p>`;
+                        resultTextEl.innerHTML = `<p class="text-2xl md:text-3xl font-bold">No se estima llamada este curso.</p><p class="text-sm mt-2 opacity-90">Tu posición (${posicion}) supera los llamamientos totales previstos para el curso.</p>`;
                         break;
                     case 'especifico':
                         resultTextEl.innerHTML = `
                             <p class="text-3xl md:text-4xl font-bold">Estimación: ${resultado.semana} de ${resultado.mes}</p>
-                            <p class="text-sm mt-2 opacity-90">Con una posición a competir de ${posicionReal}, se estima tu incorporación en esa fecha.</p>
+                            <p class="text-sm mt-2 opacity-90">Con tu posición en bolsa de ${posicion}, se estima tu incorporación en esa fecha.</p>
                         `;
                         break;
                 }
 
                 if (!cumulativeChart) createCharts();
                 
-                const avanceGeneralAcumulado = MESES.reduce((acc, mes) => {
-                    acc.push((acc.length > 0 ? acc[acc.length - 1] : 0) + LLAMAMIENTOS_MENSUALES[mes]);
-                    return acc;
-                }, []);
+                // --- Preparación de datos para la gráfica de línea ---
+                const labelsParaGrafica = ['Vac. Informatizadas', ...MESES];
+                
+                let acumulado = vacantes;
+                const avanceGeneralAcumulado = [vacantes, ...MESES.map(mes => {
+                    acumulado += LLAMAMIENTOS_MENSUALES[mes];
+                    return acumulado;
+                })];
 
-                const posicionUsuarioData = new Array(MESES.length).fill(posicionReal > 0 ? posicionReal : null);
+                const posicionUsuarioData = new Array(labelsParaGrafica.length).fill(posicion > 0 ? posicion : null);
 
+                if (resultado.tipo === 'especifico' && resultado.xIndex !== null) {
+                    cumulativeChart.options.plugins.verticalLinePlugin.intersection = {
+                        xIndex: resultado.xIndex,
+                        yValue: posicion
+                    };
+                } else {
+                    cumulativeChart.options.plugins.verticalLinePlugin.intersection = null;
+                }
+                
+                cumulativeChart.data.labels = labelsParaGrafica;
                 cumulativeChart.data.datasets = [
                     {
-                        label: 'Avance General Estimado de la Bolsa',
+                        label: 'Avance Acumulado de la Bolsa',
                         data: avanceGeneralAcumulado,
                         borderColor: '#f97316',
                         backgroundColor: 'rgba(249, 115, 22, 0.2)',
                         fill: true,
-                        tension: 0.2
+                        tension: 0.2,
+                        pointRadius: 0
                     },
                     {
-                        label: 'Tu Posición a Competir (Tras vacantes)',
+                        label: 'Tu Posición en Bolsa',
                         data: posicionUsuarioData,
                         borderColor: '#4b5563',
                         borderDash: [5, 5],
@@ -191,8 +241,8 @@
                 ];
                 cumulativeChart.update();
 
+                // --- Actualización de la gráfica de barras (sin cambios) ---
                 const coloresBarras = MESES.map((_, index) => index === resultado.mesIndex ? '#d97706' : '#fdba74');
-
                 monthlyCallsChart.data.datasets = [{
                     label: 'Llamamientos Mensuales Estimados',
                     data: Object.values(LLAMAMIENTOS_MENSUALES),
@@ -204,16 +254,13 @@
 
             // --- INITIALIZATION AND EVENT LISTENERS ---
             document.getElementById('calculateBtn').addEventListener('click', () => {
-                const posicion = parseInt(document.getElementById('bolsaPos').value);
-                const vacantes = parseInt(document.getElementById('vacantesAgosto').value);
+                const posicion = parseInt(document.getElementById('bolsaPos').value) || 0;
+                const vacantes = parseInt(document.getElementById('vacantesAgosto').value) || 0;
                 
-                const posicionReal = Math.max(0, posicion - vacantes);
-                
-                const resultado = calculateForecast(posicionReal);
-                updateUI(resultado, posicionReal);
+                const resultado = calculateForecast(posicion, vacantes);
+                updateUI(resultado, posicion, vacantes);
             });
             
-            // Initial calculation on load
             createCharts();
             document.getElementById('calculateBtn').click();
         });
